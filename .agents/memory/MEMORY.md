@@ -1,1 +1,2 @@
 - [GitHub push quirks](github-push-quirks.md) — verify remote ancestry because the Git pane can report stale conflicts and auto-commit attachments.
+- [Render build quirks](render-build-quirks.md) — use the preinstalled pnpm; Corepack cannot replace the read-only system binary.
