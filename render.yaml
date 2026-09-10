@@ -1,0 +1,17 @@
+services:
+  - type: web
+    name: maroon-discord-bot
+    runtime: node
+    plan: free
+    buildCommand: corepack enable && corepack prepare pnpm@10.26.1 --activate && pnpm install --frozen-lockfile && pnpm run typecheck:libs && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/api-server run build
+    startCommand: pnpm --filter @workspace/api-server run start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: DISCORD_APPLICATION_ID
+        value: "1535813652525875280"
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DATABASE_URL
+        sync: false

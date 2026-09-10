@@ -1,0 +1,16 @@
+uploads = []
+generated = []
+
+[[outputs]]
+id = "W2fr0apvoqTkNhCGx0fJ3"
+uri = "file://maroon-github-source.tar.gz"
+type = "unspecified"
+title = "Maroon GitHub source bundle"
+description = "Clean GitHub-ready Maroon source archive. Secrets, dependencies, build output, and Replit-only local files are excluded."
+logical_id = "127d672d-e4f6-4920-95b5-d14e2303a2e6"
+content_hash = "sha256:1a5f2052d6ecb34fc3500efe3f801d39ea9b64b95edf0e5723a52e36222d27be"
+size = 14546284
+mtime_ms = 1788956445722
+storage_uri = "gcs://replit-rams-assets-picard/rams/assets/repl:1682e72c-d7ed-41b5-93b8-9c0d6958e1a2/127d672d-e4f6-4920-95b5-d14e2303a2e6/c6f21c37-0a39-4533-a481-649110f69019"
+storage_version_token = "1788956449243331"
+content_type = "application/octet-stream"

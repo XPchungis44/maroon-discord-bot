@@ -1,0 +1,84 @@
+import {
+  boolean,
+  integer,
+  jsonb,
+  pgTable,
+  serial,
+  text,
+  timestamp,
+  varchar,
+  primaryKey,
+} from "drizzle-orm/pg-core";
+
+export const guildSettings = pgTable("maroon_guild_settings", {
+  guildId: varchar("guild_id", { length: 32 }).primaryKey(),
+  prefix: varchar("prefix", { length: 8 }).notNull().default("."),
+  announcementChannelId: varchar("announcement_channel_id", { length: 32 }),
+  welcomeEnabled: boolean("welcome_enabled").notNull().default(false),
+  welcomeChannelId: varchar("welcome_channel_id", { length: 32 }),
+  welcomeMessage: text("welcome_message"),
+  welcomeMediaUrl: text("welcome_media_url"),
+  autoModEnabled: boolean("auto_mod_enabled").notNull().default(false),
+  autoModSlurs: boolean("auto_mod_slurs").notNull().default(true),
+  autoModCurseWords: boolean("auto_mod_curse_words").notNull().default(true),
+  autoModNsfw: boolean("auto_mod_nsfw").notNull().default(true),
+  autoModTimeoutSeconds: integer("auto_mod_timeout_seconds").notNull().default(0),
+  triggerWords: text("trigger_words").array().notNull().default([]),
+  apingEnabled: boolean("aping_enabled").notNull().default(false),
+  closeEyeEnabled: boolean("close_eye_enabled").notNull().default(false),
+  lockedChannels: jsonb("locked_channels")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+  updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const maroonUserStats = pgTable(
+  "maroon_user_stats",
+  {
+    guildId: varchar("guild_id", { length: 32 }).notNull(),
+    userId: varchar("user_id", { length: 32 }).notNull(),
+    messagesSent: integer("messages_sent").notNull().default(0),
+    deletedMessages: integer("deleted_messages").notNull().default(0),
+    inviteJoins: integer("invite_joins").notNull().default(0),
+    joinedAt: timestamp("joined_at", { withTimezone: true }),
+    lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
+  },
+  (table) => [primaryKey({ columns: [table.guildId, table.userId] })],
+);
+
+export const deletedMessages = pgTable("maroon_deleted_messages", {
+  id: serial("id").primaryKey(),
+  guildId: varchar("guild_id", { length: 32 }).notNull(),
+  channelId: varchar("channel_id", { length: 32 }).notNull(),
+  messageId: varchar("message_id", { length: 32 }).notNull(),
+  userId: varchar("user_id", { length: 32 }).notNull(),
+  content: text("content").notNull(),
+  deletedAt: timestamp("deleted_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const maroonGiveaways = pgTable("maroon_giveaways", {
+  id: serial("id").primaryKey(),
+  guildId: varchar("guild_id", { length: 32 }).notNull(),
+  channelId: varchar("channel_id", { length: 32 }).notNull(),
+  messageId: varchar("message_id", { length: 32 }).notNull(),
+  hostId: varchar("host_id", { length: 32 }).notNull(),
+  sponsor: text("sponsor"),
+  prize: text("prize").notNull(),
+  durationSeconds: integer("duration_seconds").notNull(),
+  endsAt: timestamp("ends_at", { withTimezone: true }).notNull(),
+  winnerId: varchar("winner_id", { length: 32 }),
+  status: varchar("status", { length: 16 }).notNull().default("active"),
+  entries: text("entries").array().notNull().default([]),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
+
+export const maroonComplaints = pgTable("maroon_complaints", {
+  id: serial("id").primaryKey(),
+  guildId: varchar("guild_id", { length: 32 }),
+  userId: varchar("user_id", { length: 32 }).notNull(),
+  complaint: text("complaint").notNull(),
+  ownerMessageId: varchar("owner_message_id", { length: 32 }),
+  createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
+});
