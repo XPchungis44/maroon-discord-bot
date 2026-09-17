@@ -204,6 +204,23 @@ export async function updateGiveaway(
   return updated;
 }
 
+export async function addGiveawayEntry(id: number, userId: string) {
+  const [updated] = await db
+    .update(maroonGiveaways)
+    .set({
+      entries: sql`${maroonGiveaways.entries} || ARRAY[${userId}]::text[]`,
+    })
+    .where(
+      and(
+        eq(maroonGiveaways.id, id),
+        eq(maroonGiveaways.status, "active"),
+        sql`NOT (${maroonGiveaways.entries} @> ARRAY[${userId}]::text[])`,
+      ),
+    )
+    .returning();
+  return updated;
+}
+
 export async function createComplaint(input: typeof maroonComplaints.$inferInsert) {
   const [created] = await db.insert(maroonComplaints).values(input).returning();
   if (!created) throw new Error("Could not create complaint");

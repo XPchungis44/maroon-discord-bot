@@ -20,6 +20,7 @@ import {
 import { logger } from "../lib/logger";
 import {
   clearDeletedMessages,
+  addGiveawayEntry,
   createComplaint,
   createGiveaway,
   getComplaintByOwnerMessage,
@@ -40,6 +41,8 @@ import {
 
 const OWNER_ID = "1459373221756538923";
 const VOTE_URL = "https://top.gg/bot/1535813652525875280/vote";
+const DEFAULT_PREFIX = ".";
+const LOCKED_MEMBERS_KEY = "__maroon_locked_members";
 const client = new Client({
   intents: [
     GatewayIntentBits.Guilds,
@@ -73,6 +76,36 @@ function durationSeconds(raw: string): number | null {
   const units: Record<string, number> = { s: 1, m: 60, h: 3600, d: 86400, w: 604800 };
   const unit = match[2];
   return Math.round(value * (units[unit] ?? 0));
+}
+
+function normalizePrefix(raw: string | null | undefined) {
+  const prefix = raw?.trim() ?? "";
+  if (!prefix || prefix.length > 7 || /\s/.test(prefix) || prefix.includes("/") || prefix === "?!") {
+    return null;
+  }
+  return prefix;
+}
+
+function getLockedMemberIds(settings: { lockedChannels: Record<string, unknown> }) {
+  const value = settings.lockedChannels[LOCKED_MEMBERS_KEY];
+  return Array.isArray(value) ? value.filter((userId): userId is string => typeof userId === "string") : [];
+}
+
+function withLockedMemberIds(
+  settings: { lockedChannels: Record<string, unknown> },
+  userIds: string[],
+) {
+  return {
+    ...settings.lockedChannels,
+    [LOCKED_MEMBERS_KEY]: userIds,
+  };
+}
+
+function resolveMentionedMember(message: Message, rawId?: string) {
+  const mentioned = message.mentions.members?.first();
+  if (mentioned) return Promise.resolve(mentioned);
+  const userId = rawId?.match(/^<@!?(\d+)>$/)?.[1] ?? (rawId?.match(/^\d{15,25}$/) ? rawId : null);
+  return userId ? message.guild?.members.fetch(userId).catch(() => null) : Promise.resolve(null);
 }
 
 function commandHasPermission(
@@ -161,6 +194,53 @@ async function respond(
   }
 }
 
+async function respondWithEmbed(
+  interaction: ChatInputCommandInteraction,
+  embed: EmbedBuilder,
+  ephemeral = true,
+) {
+  if (interaction.replied || interaction.deferred) {
+    await interaction.editReply({ content: "", embeds: [embed] });
+  } else {
+    await interaction.reply({
+      embeds: [embed],
+      flags: ephemeral ? MessageFlags.Ephemeral : undefined,
+    });
+  }
+}
+
+function helpEmbed(prefix: string) {
+  return new EmbedBuilder()
+    .setColor(0x8b1e3f)
+    .setTitle("Maroon Command Center")
+    .setDescription(
+      `Security, moderation, and server tools in one place.\nYour current prefix is **${prefix}**.`,
+    )
+    .addFields(
+      {
+        name: "Setup",
+        value: "`/prefix_m` · `/announcements_channel_set` · `/welcome` · `/welcome_toggle` · `/a_ping` · `/aping_toggle`",
+      },
+      {
+        name: "Safety & moderation",
+        value: "`/auto_mod` · `/asetup_mod` · `/close_eye`\n`/mlock` is available as a prefix command.",
+      },
+      {
+        name: "Community",
+        value: "`/create_giveaway` · `/edit_giveaway` · `/poll` · `/who_is` · `/complain` · `/v`",
+      },
+      {
+        name: "Prefix commands",
+        value: `\`${prefix}commands\` · \`${prefix}prefix\` · \`${prefix}mlock add @user\` · \`${prefix}mlock remove @user\`\n\`${prefix}mute\` · \`${prefix}kick\` · \`${prefix}ban\` · \`${prefix}lock\` · \`${prefix}unlock\` · \`${prefix}nuke\` · \`${prefix}raid\`\n\`${prefix}leaderboard\` · \`${prefix}afk\` · \`${prefix}s\` · \`${prefix}cs\` · \`${prefix}v\``,
+      },
+      {
+        name: "Emergency lockdown",
+        value: "`?!LOCK!?` · `?!UNLOCK!?` · `?!DELETE!? @user`",
+      },
+    )
+    .setFooter({ text: "Use /help or your prefix followed by commands any time." });
+}
+
 function commandDefinitions() {
   return [
     new SlashCommandBuilder()
@@ -246,6 +326,8 @@ function commandDefinitions() {
       .setDescription("Turn join pings on or off")
       .addBooleanOption((option) => option.setName("enabled").setDescription("Enabled").setRequired(true)),
     new SlashCommandBuilder().setName("menu_m").setDescription("Show Maroon commands available to you"),
+    new SlashCommandBuilder().setName("help").setDescription("Show Maroon's command center"),
+    new SlashCommandBuilder().setName("commands").setDescription("Show Maroon's command center"),
     new SlashCommandBuilder()
       .setName("welcome_toggle")
       .setDescription("Turn welcome messages on or off")
@@ -279,6 +361,12 @@ function commandDefinitions() {
       .addStringOption((option) =>
         option.setName("prefix").setDescription("One to seven characters, not ?!").setRequired(true),
       ),
+    new SlashCommandBuilder()
+      .setName("prefix")
+      .setDescription("Change this server's prefix commands")
+      .addStringOption((option) =>
+        option.setName("prefix").setDescription("One to seven characters, not ?!").setRequired(true),
+      ),
     new SlashCommandBuilder().setName("v").setDescription("Show the Maroon voting link"),
   ].map((command) => command.toJSON());
 }
@@ -289,6 +377,16 @@ async function registerCommands() {
   if (!token) throw new Error("DISCORD_TOKEN is required");
   const rest = new REST({ version: "10" }).setToken(token);
   await rest.put(Routes.applicationCommands(applicationId), { body: commandDefinitions() });
+}
+
+async function registerGuildCommands(guildId: string) {
+  const token = process.env.DISCORD_TOKEN;
+  const applicationId = process.env.DISCORD_APPLICATION_ID ?? "1535813652525875280";
+  if (!token) return;
+  const rest = new REST({ version: "10" }).setToken(token);
+  await rest.put(Routes.applicationGuildCommands(applicationId, guildId), {
+    body: commandDefinitions(),
+  });
 }
 
 async function scheduleGiveaway(
@@ -327,24 +425,16 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
     return;
   }
   const guildId = interaction.guildId;
+  await interaction.deferReply({ flags: MessageFlags.Ephemeral });
   const settings = await getGuildSettings(guildId);
   const name = interaction.commandName;
 
   if (name === "v") {
-    await interaction.reply({ content: `[Vote for a higher win chance.](${VOTE_URL})` });
+    await respond(interaction, `[Vote for a higher win chance.](${VOTE_URL})`);
     return;
   }
-  if (name === "menu_m") {
-    await respond(
-      interaction,
-      [
-        "**Maroon command menu**",
-        "`/` Setup: announcements, giveaways, polls, auto-mod, welcome, prefix",
-        "`.` Moderation: mute, kick, ban, nuke, raid, lock, unlock",
-        "`?! !?` Lockdown: `?!LOCK!?`, `?!UNLOCK!?`, `?!DELETE!? <user>`",
-        "Use `/menu_m` again any time to see this list.",
-      ].join("\n"),
-    );
+  if (name === "menu_m" || name === "help" || name === "commands") {
+    await respondWithEmbed(interaction, helpEmbed(normalizePrefix(settings.prefix) ?? DEFAULT_PREFIX));
     return;
   }
   if (name === "announcements_channel_set") {
@@ -357,14 +447,14 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
     await respond(interaction, "Announcement channel saved.");
     return;
   }
-  if (name === "prefix_m") {
+  if (name === "prefix_m" || name === "prefix") {
     if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
       await respond(interaction, "You need Manage Server to change the prefix.");
       return;
     }
-    const prefix = interaction.options.getString("prefix", true).trim();
-    if (!prefix || prefix.length > 7 || prefix.includes("/") || prefix === "?!") {
-      await respond(interaction, "Choose a prefix from 1–7 characters without `/`; `?!` is reserved for lockdown commands.");
+    const prefix = normalizePrefix(interaction.options.getString("prefix", true));
+    if (!prefix) {
+      await respond(interaction, "Choose a prefix from 1–7 characters without spaces or `/`; `?!` is reserved for lockdown commands.");
       return;
     }
     await updateGuildSettings(guildId, { prefix });
@@ -372,14 +462,8 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
     return;
   }
   if (name === "create_giveaway") {
-    const required = [
-      PermissionFlagsBits.MuteMembers,
-      PermissionFlagsBits.CreateInstantInvite,
-      PermissionFlagsBits.UseApplicationCommands,
-      PermissionFlagsBits.CreateEvents,
-    ];
-    if (!required.every((permission) => commandHasPermission(interaction, permission))) {
-      await respond(interaction, "You need Mute Members, Create Invite, Use Application Commands, and Create Events.");
+    if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
+      await respond(interaction, "You need Manage Server to create a giveaway.");
       return;
     }
     const seconds = durationSeconds(interaction.options.getString("duration", true));
@@ -591,15 +675,35 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
     await respond(interaction, "Your complaint was sent privately. Thank you for helping improve Maroon.");
     return;
   }
+  await respond(interaction, "That command is not available in this version of Maroon. Try `/help`.");
 }
 
 async function runPrefixCommand(message: Message, content: string, prefix: string) {
-  const [rawCommand, ...args] = content.slice(prefix.length).trim().split(/\s+/);
+  const tokens = content.slice(prefix.length).trim().split(/\s+/).filter(Boolean);
+  const [rawCommand, ...args] = tokens;
+  if (!rawCommand) return undefined;
   const command = rawCommand.toLowerCase();
   const member = message.member;
   if (!member || !message.guild) return;
   const reply = (text: string) => message.reply(text).catch(() => undefined);
+  const replyEmbed = (embed: EmbedBuilder) => message.reply({ embeds: [embed] }).catch(() => undefined);
 
+  if (command === "help" || command === "commands" || command === "menu" || command === "menu_m") {
+    return replyEmbed(helpEmbed(normalizePrefix(prefix) ?? DEFAULT_PREFIX));
+  }
+  if (command === "prefix" || command === "prefix_m") {
+    if (!memberHasPermission(member, PermissionFlagsBits.ManageGuild)) {
+      return reply("You need Manage Server to change the prefix.");
+    }
+    const requested = args[0]?.toLowerCase() === "set" ? args[1] : args[0];
+    if (!requested) return reply(`Current prefix: \`${prefix}\`. Usage: ${prefix}prefix set <new-prefix>`);
+    const nextPrefix = normalizePrefix(requested);
+    if (!nextPrefix) {
+      return reply("Choose a prefix from 1–7 characters without spaces or `/`; `?!` is reserved for lockdown commands.");
+    }
+    await updateGuildSettings(message.guild.id, { prefix: nextPrefix });
+    return reply(`Prefix changed to \`${nextPrefix}\`. Use \`${nextPrefix}commands\` for help.`);
+  }
   if (command === "v") return reply(`[Vote for a higher win chance.](${VOTE_URL})`);
   if (command === "afk" || command === "a") {
     const reason = args.join(" ") || "AFK";
@@ -630,9 +734,43 @@ async function runPrefixCommand(message: Message, content: string, prefix: strin
     const label = requestedMetric === "inviteJoins" ? "invites" : requestedMetric === "deletedMessages" ? "deleted messages" : "messages";
     return reply(`**Leaderboard: ${label}**\n${rows.map((row, index) => `${index + 1}. <@${row.userId}> — ${row[requestedMetric]}`).join("\n")}`);
   }
-  if (command === "mlockm") {
-    if (!memberHasPermission(member, PermissionFlagsBits.MuteMembers)) return reply("You need Mute Members.");
-    return reply("MlockM is reserved for a future release; no messages were changed.");
+  if (command === "mlock" || command === "mlockm") {
+    if (!memberHasPermission(member, PermissionFlagsBits.ManageMessages)) return reply("You need Manage Messages.");
+    const action = args[0]?.toLowerCase();
+    if (action === "list") {
+      const settings = await getGuildSettings(message.guild.id);
+      const lockedMembers = getLockedMemberIds(settings);
+      return reply(
+        lockedMembers.length
+          ? `**Member locks (${lockedMembers.length})**\n${lockedMembers.map((userId) => `<@${userId}>`).join(", ")}`
+          : "No members are currently locked.",
+      );
+    }
+    if (action !== "add" && action !== "remove" && action !== "del") {
+      return reply(`Usage: ${prefix}mlock add @user | ${prefix}mlock remove @user | ${prefix}mlock list`);
+    }
+    const target = await resolveMentionedMember(message, args[1]);
+    if (!target) return reply(`Usage: ${prefix}mlock ${action} @user`);
+    if (target.id === message.guild.ownerId || target.id === OWNER_ID) {
+      return reply("The server owner and Maroon owner cannot be member-locked.");
+    }
+    const settings = await getGuildSettings(message.guild.id);
+    const lockedMembers = getLockedMemberIds(settings);
+    if (action === "add") {
+      if (lockedMembers.includes(target.id)) return reply(`${target} is already member-locked.`);
+      await updateGuildSettings(message.guild.id, {
+        lockedChannels: withLockedMemberIds(settings, [...lockedMembers, target.id]),
+      });
+      return reply(`${target} is now member-locked. Their messages will be removed.`);
+    }
+    if (!lockedMembers.includes(target.id)) return reply(`${target} is not member-locked.`);
+    await updateGuildSettings(message.guild.id, {
+      lockedChannels: withLockedMemberIds(
+        settings,
+        lockedMembers.filter((userId) => userId !== target.id),
+      ),
+    });
+    return reply(`${target} is no longer member-locked.`);
   }
   if (command === "mute") {
     if (!memberHasPermission(member, PermissionFlagsBits.MuteMembers)) return reply("You need Mute Members.");
@@ -736,7 +874,7 @@ async function handleLockdown(message: Message) {
     message.member.id === OWNER_ID ||
     (message.member.permissions.has(PermissionFlagsBits.KickMembers) &&
       message.member.permissions.has(PermissionFlagsBits.ManageMessages));
-  if (!hasPermissions) return true;
+  if (!hasPermissions) return false;
   if (content === "?!LOCK!?") {
     if (!message.channel.isTextBased() || !("permissionOverwrites" in message.channel)) return true;
     const settings = await getGuildSettings(message.guild.id);
@@ -811,6 +949,13 @@ async function handleAutoMod(message: Message) {
 client.once("clientReady", async (readyClient) => {
   readyClient.user.setActivity(`Bot modding ${readyClient.guilds.cache.size} servers`);
   logger.info({ guilds: readyClient.guilds.cache.size }, "Maroon is online");
+  await Promise.all(
+    [...readyClient.guilds.cache.values()].map((guild) =>
+      registerGuildCommands(guild.id).catch((error: unknown) =>
+        logger.warn({ error, guildId: guild.id }, "Could not register guild slash commands"),
+      ),
+    ),
+  );
   for (const guild of readyClient.guilds.cache.values()) {
     await getGuildSettings(guild.id).catch((error: unknown) => logger.error({ error }, "Could not initialize guild settings"));
     await refreshGuildInvites(guild);
@@ -821,6 +966,9 @@ client.on("guildCreate", (guild) => {
   client.user?.setActivity(`Bot modding ${client.guilds.cache.size} servers`);
   void getGuildSettings(guild.id);
   void refreshGuildInvites(guild);
+  void registerGuildCommands(guild.id).catch((error: unknown) =>
+    logger.warn({ error, guildId: guild.id }, "Could not register guild slash commands"),
+  );
 });
 
 client.on("guildMemberAdd", async (member) => {
@@ -883,12 +1031,28 @@ client.on("messageCreate", async (message) => {
     const reason = afkUsers.get(`${message.guild.id}:${user.id}`);
     if (reason) await message.reply(`${user} is AFK: ${reason}`).catch(() => undefined);
   }
+  const settings = await getGuildSettings(message.guild.id);
+  if (getLockedMemberIds(settings).includes(message.author.id)) {
+    await message.delete().catch(() => undefined);
+    return;
+  }
   await handleAutoMod(message);
   const lockdownHandled = await handleLockdown(message);
   if (lockdownHandled) return;
-  const settings = await getGuildSettings(message.guild.id);
-  if (message.content.startsWith(settings.prefix)) {
-    await runPrefixCommand(message, message.content, settings.prefix);
+  const configuredPrefix = normalizePrefix(settings.prefix) ?? DEFAULT_PREFIX;
+  if (message.content.startsWith(configuredPrefix)) {
+    await runPrefixCommand(message, message.content, configuredPrefix);
+    return;
+  }
+  if (configuredPrefix !== DEFAULT_PREFIX && message.content.startsWith(DEFAULT_PREFIX)) {
+    const fallbackCommand = message.content
+      .slice(DEFAULT_PREFIX.length)
+      .trim()
+      .split(/\s+/, 1)[0]
+      ?.toLowerCase();
+    if (["help", "commands", "menu", "prefix", "prefix_m"].includes(fallbackCommand ?? "")) {
+      await runPrefixCommand(message, message.content, DEFAULT_PREFIX);
+    }
   }
 });
 
@@ -907,25 +1071,33 @@ client.on("interactionCreate", async (interaction) => {
   try {
     if (interaction.isChatInputCommand()) await handleInteraction(interaction);
     if (interaction.isButton() && interaction.customId === "maroon_giveaway_join") {
+      await interaction.deferReply({ flags: MessageFlags.Ephemeral });
       const message = interaction.message;
       const giveaway = await getGiveawayByMessage(message.id);
       if (!giveaway || giveaway.status !== "active") {
-        await interaction.reply({ content: "That giveaway has ended.", flags: MessageFlags.Ephemeral });
+        await interaction.editReply({ content: "That giveaway has ended." });
         return;
       }
-      if (giveaway.entries.includes(interaction.user.id)) {
-        await interaction.reply({ content: "You are already entered.", flags: MessageFlags.Ephemeral });
+      const updated = await addGiveawayEntry(giveaway.id, interaction.user.id);
+      if (!updated) {
+        const latest = await getGiveawayByMessage(message.id);
+        await interaction.editReply({
+          content: latest?.status === "active" ? "You are already entered." : "That giveaway has ended.",
+        });
         return;
       }
-      await updateGiveaway(giveaway.id, { entries: [...giveaway.entries, interaction.user.id] });
-      await interaction.reply({ content: "You are entered. Good luck.", flags: MessageFlags.Ephemeral });
+      await interaction.editReply({ content: "You are entered. Good luck." });
     }
   } catch (error) {
     logger.error({ error, interaction: interaction.id }, "Interaction failed");
     if (interaction.isChatInputCommand()) {
       await respond(interaction, "Maroon could not complete that command.", true).catch(() => undefined);
     } else if (interaction.isRepliable()) {
-      await interaction.reply({ content: "Maroon could not complete that command.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      if (interaction.deferred || interaction.replied) {
+        await interaction.editReply({ content: "Maroon could not complete that command." }).catch(() => undefined);
+      } else {
+        await interaction.reply({ content: "Maroon could not complete that command.", flags: MessageFlags.Ephemeral }).catch(() => undefined);
+      }
     }
   }
 });

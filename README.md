@@ -104,11 +104,11 @@ Set the job to alert on non-200 responses. A free Render instance can still have
 
 ## Available command groups
 
-- Slash commands: `/menu_m`, `/create_giveaway`, `/edit_giveaway`, `/poll`, `/who_is`, `/auto_mod`, `/asetup_mod`, `/a_ping`, `/aping_toggle`, `/welcome`, `/welcome_toggle`, `/close_eye`, `/complain`, `/prefix_m`, `/announcements_channel_set`, `/v`
-- Prefix commands: `.mute`, `.kick`, `.ban`, `.nuke`, `.raid`, `.s`, `.cs`, `.leaderboard`, `.li`, `.lm`, `.ld`, `.ldm`, `.afk`, `.a`, `.v`
+- Slash commands: `/menu_m`, `/help`, `/commands`, `/create_giveaway`, `/edit_giveaway`, `/poll`, `/who_is`, `/auto_mod`, `/asetup_mod`, `/a_ping`, `/aping_toggle`, `/welcome`, `/welcome_toggle`, `/close_eye`, `/complain`, `/prefix`, `/prefix_m`, `/announcements_channel_set`, `/v`
+- Prefix commands: `.commands`, `.help`, `.prefix`, `.mlock add @user`, `.mlock remove @user`, `.mlock list`, `.mute`, `.kick`, `.ban`, `.nuke`, `.raid`, `.lock`, `.unlock`, `.s`, `.cs`, `.leaderboard`, `.li`, `.lm`, `.ld`, `.ldm`, `.afk`, `.a`, `.v`
 - Lockdown commands: `?!LOCK!?`, `?!UNLOCK!?`, and `?!DELETE!? @user`
 
-The default prefix is `.`, and each server can change it with `/prefix_m`.
+The default prefix is `.`, and each server can change it with `/prefix` or `/prefix_m`. If a custom prefix is forgotten, `.help` and `.prefix` remain available as recovery commands.
 
 ## Useful commands
 
