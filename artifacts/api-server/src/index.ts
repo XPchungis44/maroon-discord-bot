@@ -16,6 +16,8 @@ if (Number.isNaN(port) || port <= 0) {
   throw new Error(`Invalid PORT value: "${rawPort}"`);
 }
 
+// Always start the HTTP server first so Render health checks and cron
+// keep-alive pings succeed even if Discord login is delayed or fails.
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -23,7 +25,8 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+
   void startMaroon().catch((error: unknown) => {
-    logger.error({ error }, "Maroon could not start");
+    logger.error({ error }, "Maroon could not start — check DISCORD_TOKEN and DATABASE_URL");
   });
 });
