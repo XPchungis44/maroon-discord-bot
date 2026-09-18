@@ -29,6 +29,16 @@ app.use(cors());
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+// Simple health endpoints so cron-jobs and Render health checks work
+// even if someone uses the root URL or /healthz instead of /api/healthz.
+const healthPayload = { status: "ok" as const };
+app.get("/", (_req, res) => {
+  res.status(200).json(healthPayload);
+});
+app.get("/healthz", (_req, res) => {
+  res.status(200).json(healthPayload);
+});
+
 app.use("/api", router);
 
 export default app;
