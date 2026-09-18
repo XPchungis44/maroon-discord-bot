@@ -5,7 +5,7 @@ services:
     plan: free
     buildCommand: pnpm install --frozen-lockfile && pnpm run typecheck:libs && pnpm --filter @workspace/api-server run typecheck && pnpm --filter @workspace/api-server run build
     startCommand: pnpm --filter @workspace/api-server run start
-    healthCheckPath: /api/healthz
+    healthCheckPath: /
     envVars:
       - key: NODE_ENV
         value: production
