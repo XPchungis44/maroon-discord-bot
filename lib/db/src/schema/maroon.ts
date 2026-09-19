@@ -28,17 +28,6 @@ export const guildSettings = pgTable("maroon_guild_settings", {
   apingChannelIds: text("aping_channel_ids").array().notNull().default([]),
   apingDeleteAfterSeconds: integer("aping_delete_after_seconds").notNull().default(5),
   closeEyeEnabled: boolean("close_eye_enabled").notNull().default(false),
-  levelSystemEnabled: boolean("level_system_enabled").notNull().default(false),
-  levelAnnouncementChannelId: varchar("level_announcement_channel_id", { length: 32 }),
-  levelAutoSetup: boolean("level_auto_setup").notNull().default(false),
-  levelRoleRewards: jsonb("level_role_rewards")
-    .$type<Array<{ level: number; roleId: string }>>()
-    .notNull()
-    .default([]),
-  levelMessageTemplate: text("level_message_template")
-    .notNull()
-    .default("{user} reached level {level}!"),
-  levelCooldownSeconds: integer("level_cooldown_seconds").notNull().default(5),
   lockedChannels: jsonb("locked_channels")
     .$type<Record<string, unknown>>()
     .notNull()
@@ -57,9 +46,6 @@ export const maroonUserStats = pgTable(
     inviteJoins: integer("invite_joins").notNull().default(0),
     joinedAt: timestamp("joined_at", { withTimezone: true }),
     lastMessageAt: timestamp("last_message_at", { withTimezone: true }),
-    level: integer("level").notNull().default(0),
-    levelMessages: integer("level_messages").notNull().default(0),
-    levelLastGrantedAt: timestamp("level_last_granted_at", { withTimezone: true }),
   },
   (table) => [primaryKey({ columns: [table.guildId, table.userId] })],
 );
