@@ -31,10 +31,18 @@ export const guildSettings = pgTable("maroon_guild_settings", {
   levelSystemEnabled: boolean("level_system_enabled").notNull().default(false),
   levelAnnouncementChannelId: varchar("level_announcement_channel_id", { length: 32 }),
   levelAutoSetup: boolean("level_auto_setup").notNull().default(false),
-  levelRoleRewards: jsonb("level_role_rewards").$type<Array<{ level: number; roleId: string }>>().notNull().default([]),
-  levelMessageTemplate: text("level_message_template").notNull().default("{user} reached level {level}!"),
+  levelRoleRewards: jsonb("level_role_rewards")
+    .$type<Array<{ level: number; roleId: string }>>()
+    .notNull()
+    .default([]),
+  levelMessageTemplate: text("level_message_template")
+    .notNull()
+    .default("{user} reached level {level}!"),
   levelCooldownSeconds: integer("level_cooldown_seconds").notNull().default(5),
-  lockedChannels: jsonb("locked_channels").$type<Record<string, unknown>>().notNull().default({}),
+  lockedChannels: jsonb("locked_channels")
+    .$type<Record<string, unknown>>()
+    .notNull()
+    .default({}),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),
 });
