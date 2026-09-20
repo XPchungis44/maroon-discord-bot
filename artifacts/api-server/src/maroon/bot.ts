@@ -625,7 +625,11 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
       return;
     }
     const channel = interaction.options.getChannel("channel", true);
+        const channel = interaction.options.getChannel("channel", true);
     if (!channel.isTextBased()) {
+      await respond(interaction, "That channel cannot receive join pings.");
+      return;
+    } {
       await respond(interaction, "That channel cannot receive join pings.");
       return;
     }
