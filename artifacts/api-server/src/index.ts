@@ -2,31 +2,14 @@ import app from "./app";
 import { logger } from "./lib/logger";
 import { startMaroon } from "./maroon/bot";
 
-const rawPort = process.env["PORT"];
+const port = Number(process.env.PORT ?? 3000);
 
-if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
-}
-
-const port = Number(rawPort);
-
-if (Number.isNaN(port) || port <= 0) {
-  throw new Error(`Invalid PORT value: "${rawPort}"`);
-}
-
-// Always start the HTTP server first so Render health checks and cron
-// keep-alive pings succeed even if Discord login is delayed or fails.
-app.listen(port, (err) => {
-  if (err) {
-    logger.error({ err }, "Error listening on port");
-    process.exit(1);
-  }
-
+app.listen(port, async () => {
   logger.info({ port }, "Server listening");
 
-  void startMaroon().catch((error: unknown) => {
-    logger.error({ error }, "Maroon could not start — check DISCORD_TOKEN and DATABASE_URL");
-  });
+  try {
+    await startMaroon();
+  } catch (error) {
+    logger.error({ error }, "Maroon failed to start");
+  }
 });

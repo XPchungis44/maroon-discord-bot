@@ -219,7 +219,7 @@ function helpEmbed(prefix: string) {
     .addFields(
       {
         name: "Setup",
-        value: "`/prefix_m` · `/announcements_channel_set` · `/welcome` · `/welcome_toggle` · `/a_ping` · `/aping_toggle`",
+        value: "`/prefix_m` · `/announcements_channel_set` · `/welcome` · `/welcome_toggle` · `/a_ping` · `/aping` · `/aping_toggle`",
       },
       {
         name: "Safety & moderation",
@@ -320,6 +320,22 @@ function commandDefinitions() {
       .setDescription("Configure the member join ping channel")
       .addChannelOption((option) =>
         option.setName("channel").setDescription("Channel to ping in").setRequired(true),
+      ),
+    new SlashCommandBuilder()
+      .setName("aping")
+      .setDescription("Configure member join pings for one or more channels")
+      .addChannelOption((option) =>
+        option.setName("channel").setDescription("Channel to ping in").setRequired(true),
+      )
+      .addBooleanOption((option) =>
+        option.setName("enabled").setDescription("Enable this join ping channel").setRequired(true),
+      )
+      .addIntegerOption((option) =>
+        option
+          .setName("delete_after_seconds")
+          .setDescription("How long the ping stays visible")
+          .setMinValue(1)
+          .setMaxValue(60),
       ),
     new SlashCommandBuilder()
       .setName("aping_toggle")
@@ -547,7 +563,7 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
       await respond(interaction, "Add at least two comma-separated options.");
       return;
     }
-    await interaction.reply({
+    await interaction.editReply({
       content: `**${question}**\n${options.map((option, index) => `${index + 1}. ${option}`).join("\n")}\n\nReact with the number of your choice.`,
     });
     return;
@@ -602,6 +618,41 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
     await respond(interaction, "Auto-mod settings saved.");
     return;
   }
+  if (name === "aping") {
+    if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
+      await respond(interaction, "You need Manage Server to configure join pings.");
+      return;
+    }
+    const channel = interaction.options.getChannel("channel", true);
+    if (!channel.isTextBased()) {
+      await respond(interaction, "That channel cannot receive join pings.");
+      return;
+    }
+    const enabled = interaction.options.getBoolean("enabled", true);
+    const configuredDelay = Math.min(
+      60,
+      Math.max(1, interaction.options.getInteger("delete_after_seconds") ?? settings.apingDeleteAfterSeconds ?? 5),
+    );
+    const channels = new Set((settings.apingChannelIds ?? []).filter((id): id is string => typeof id === "string"));
+    if (enabled) {
+      channels.add(channel.id);
+    } else {
+      channels.delete(channel.id);
+    }
+    const nextChannels = [...channels];
+    await updateGuildSettings(guildId, {
+      apingEnabled: nextChannels.length > 0,
+      apingChannelIds: nextChannels,
+      apingDeleteAfterSeconds: configuredDelay,
+    });
+    await respond(
+      interaction,
+      enabled
+        ? `Join pings are enabled for ${channel}. They will delete after ${configuredDelay}s.`
+        : `Join ping removed from ${channel}.`,
+    );
+    return;
+  }
   if (name === "a_ping" || name === "aping_toggle") {
     if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
       await respond(interaction, "You need Manage Server to configure join pings.");
@@ -610,7 +661,7 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
     if (name === "a_ping") {
       const channelId = interaction.options.getChannel("channel", true).id;
       await updateGuildSettings(guildId, { welcomeChannelId: channelId });
-      await respond(interaction, "Join ping channel saved. Use `/aping_toggle enabled:true` to turn it on.");
+      await respond(interaction, "Join ping channel saved. Use `/aping enabled:true` to turn it on.");
     } else {
       await updateGuildSettings(guildId, {
         apingEnabled: interaction.options.getBoolean("enabled", true),
@@ -983,9 +1034,14 @@ client.on("guildMemberAdd", async (member) => {
   const welcomeChannel = settings.welcomeChannelId
     ? await member.guild.channels.fetch(settings.welcomeChannelId).catch(() => null)
     : null;
-  if (settings.apingEnabled && welcomeChannel?.isTextBased()) {
-    const ping = await welcomeChannel.send(`${member}`).catch(() => null);
-    if (ping) setTimeout(() => ping.delete().catch(() => undefined), 15000);
+  if (settings.apingEnabled && Array.isArray(settings.apingChannelIds) && settings.apingChannelIds.length > 0) {
+    const deleteDelayMs = Math.max(1000, (settings.apingDeleteAfterSeconds ?? 5) * 1000);
+    for (const channelId of settings.apingChannelIds) {
+      const channel = await member.guild.channels.fetch(channelId).catch(() => null);
+      if (!channel?.isTextBased()) continue;
+      const ping = await channel.send(`${member}`).catch(() => null);
+      if (ping) setTimeout(() => ping.delete().catch(() => undefined), deleteDelayMs);
+    }
   }
   if (settings.welcomeEnabled && settings.welcomeMessage && welcomeChannel?.isTextBased()) {
     await welcomeChannel.send({

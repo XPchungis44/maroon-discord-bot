@@ -35,9 +35,7 @@ export const guildSettings = pgTable("maroon_guild_settings", {
     .$type<Array<{ level: number; roleId: string }>>()
     .notNull()
     .default([]),
-  levelMessageTemplate: text("level_message_template")
-    .notNull()
-    .default("{user} reached level {level}!"),
+  levelMessageTemplate: text("level_message_template").notNull().default("{user} reached level {level}!"),
   levelCooldownSeconds: integer("level_cooldown_seconds").notNull().default(5),
   lockedChannels: jsonb("locked_channels")
     .$type<Record<string, unknown>>()
@@ -98,3 +96,4 @@ export const maroonComplaints = pgTable("maroon_complaints", {
   ownerMessageId: varchar("owner_message_id", { length: 32 }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
 });
+

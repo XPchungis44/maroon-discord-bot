@@ -9,6 +9,26 @@ import {
 } from "@workspace/db";
 
 export type GuildSettings = typeof guildSettings.$inferSelect;
+export const LEVEL_CAP = 125;
+
+/** Total qualifying messages required to reach a level: 25, 75, 150, ... */
+export function getLevelThreshold(level: number): number {
+  if (level <= 0) return 0;
+  return (25 * level * (level + 1)) / 2;
+}
+
+export function getLevelFromProgress(progress: number, cap = LEVEL_CAP): number {
+  const safeProgress = Math.max(0, progress);
+  let level = 0;
+  while (level < cap && safeProgress >= getLevelThreshold(level + 1)) level += 1;
+  return level;
+}
+
+export function getLevelProgressRemaining(progress: number, cap = LEVEL_CAP): number {
+  const level = getLevelFromProgress(progress, cap);
+  if (level >= cap) return 0;
+  return Math.max(0, getLevelThreshold(level + 1) - Math.max(0, progress));
+}
 
 const defaultSettings = (guildId: string) => ({
   guildId,
@@ -20,7 +40,15 @@ const defaultSettings = (guildId: string) => ({
   autoModTimeoutSeconds: 0,
   triggerWords: [] as string[],
   apingEnabled: false,
+  apingChannelIds: [] as string[],
+  apingDeleteAfterSeconds: 5,
   closeEyeEnabled: false,
+  levelSystemEnabled: false,
+  levelAnnouncementChannelId: null,
+  levelAutoSetup: false,
+  levelRoleRewards: [] as Array<{ level: number; roleId: string }>,
+  levelMessageTemplate: "{user} reached level {level}!",
+  levelCooldownSeconds: 5,
   lockedChannels: {} as Record<string, unknown>,
 });
 
@@ -60,12 +88,7 @@ export async function updateGuildSettings(
 export async function incrementMessageStat(guildId: string, userId: string) {
   await db
     .insert(maroonUserStats)
-    .values({
-      guildId,
-      userId,
-      messagesSent: 1,
-      lastMessageAt: new Date(),
-    })
+    .values({ guildId, userId, messagesSent: 1, lastMessageAt: new Date() })
     .onConflictDoUpdate({
       target: [maroonUserStats.guildId, maroonUserStats.userId],
       set: {
@@ -73,6 +96,55 @@ export async function incrementMessageStat(guildId: string, userId: string) {
         lastMessageAt: new Date(),
       },
     });
+}
+
+export async function awardEligibleLevelProgress(
+  guildId: string,
+  userId: string,
+  qualifyingMessageCount = 1,
+) {
+  const count = Math.max(0, Math.floor(qualifyingMessageCount));
+  const stat = await getUserStat(guildId, userId);
+  const progress = (stat?.levelMessages ?? 0) + count;
+  const level = getLevelFromProgress(progress);
+
+  await db
+    .insert(maroonUserStats)
+    .values({
+      guildId,
+      userId,
+      level,
+      levelMessages: progress,
+      levelLastGrantedAt: new Date(),
+    })
+    .onConflictDoUpdate({
+      target: [maroonUserStats.guildId, maroonUserStats.userId],
+      set: {
+        level,
+        levelMessages: progress,
+        levelLastGrantedAt: new Date(),
+      },
+    });
+
+  return {
+    level,
+    previousLevel: stat?.level ?? 0,
+    levelMessages: progress,
+    leveledUp: level > (stat?.level ?? 0),
+  };
+}
+
+export async function getUserLevelStats(guildId: string, userId: string) {
+  return getUserStat(guildId, userId);
+}
+
+export async function getUserStat(guildId: string, userId: string) {
+  return db.query.maroonUserStats.findFirst({
+    where: and(
+      eq(maroonUserStats.guildId, guildId),
+      eq(maroonUserStats.userId, userId),
+    ),
+  });
 }
 
 export async function setMemberJoinedAt(
@@ -92,26 +164,11 @@ export async function setMemberJoinedAt(
 export async function incrementInviteJoin(guildId: string, userId: string) {
   await db
     .insert(maroonUserStats)
-    .values({
-      guildId,
-      userId,
-      inviteJoins: 1,
-    })
+    .values({ guildId, userId, inviteJoins: 1 })
     .onConflictDoUpdate({
       target: [maroonUserStats.guildId, maroonUserStats.userId],
-      set: {
-        inviteJoins: sql`${maroonUserStats.inviteJoins} + 1`,
-      },
+      set: { inviteJoins: sql`${maroonUserStats.inviteJoins} + 1` },
     });
-}
-
-export async function getUserStat(guildId: string, userId: string) {
-  return db.query.maroonUserStats.findFirst({
-    where: and(
-      eq(maroonUserStats.guildId, guildId),
-      eq(maroonUserStats.userId, userId),
-    ),
-  });
 }
 
 export async function getUserLeaderboard(
@@ -144,11 +201,7 @@ export async function recordDeletedMessage(input: {
   await db.insert(deletedMessages).values(input);
   await db
     .insert(maroonUserStats)
-    .values({
-      guildId: input.guildId,
-      userId: input.userId,
-      deletedMessages: 1,
-    })
+    .values({ guildId: input.guildId, userId: input.userId, deletedMessages: 1 })
     .onConflictDoUpdate({
       target: [maroonUserStats.guildId, maroonUserStats.userId],
       set: { deletedMessages: sql`${maroonUserStats.deletedMessages} + 1` },
