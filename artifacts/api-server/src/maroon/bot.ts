@@ -539,7 +539,7 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
       return;
     }
     const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
-        if (!(channel as any).isTextBased?.()) { {
+        if (!(channel as any).isTextBased?.()) { 
       await respond(interaction, "I could not find the giveaway channel.");
       return;
     }
