@@ -860,15 +860,26 @@ async function runPrefixCommand(message: Message, content: string, prefix: strin
     afkUsers.set(`${message.guild.id}:${message.author.id}`, reason);
     return reply(`You are now marked as AFK: ${reason}`);
   }
-  if (command === "s") {
+    if (command === "s") {
     const rows = await listDeletedMessages(message.guild.id, message.channel.id);
-    return reply(
-      rows.length
-        ? rows.map((row, index) => `${index + 1}. <@${row.userId}>: ${row.content.slice(0, 150)}`).join("\n")
-        : "No deleted messages are recorded in this channel.",
-    );
-  }
-  if (command === "cs") {
+    if (!rows.length) {
+      const empty = new EmbedBuilder()
+        .setColor(0x8b1e3f)
+        .setTitle("Snipe")
+        .setDescription("No deleted messages are recorded in this channel.");
+      return replyEmbed(empty);
+    }
+    const lines = rows.slice(0, 10).map((row, index) => {
+      const content = row.content.slice(0, 120).replace(/\n/g, " ");
+      return `**${index + 1}.** <@${row.userId}>\n╰ ${content || "*empty*"}`;
+    });
+    const embed = new EmbedBuilder()
+      .setColor(0x8b1e3f)
+      .setTitle("Snipe · deleted messages")
+      .setDescription(lines.join("\n\n"))
+      .setFooter({ text: `${rows.length} stored · showing ${Math.min(rows.length, 10)}` });
+    return replyEmbed(embed);
+  }  if (command === "cs") {
     if (!memberHasPermission(member, PermissionFlagsBits.ManageMessages)) return reply("You need Manage Messages.");
     await clearDeletedMessages(message.guild.id, message.channel.id);
     return reply("Deleted message history cleared for this channel.");
