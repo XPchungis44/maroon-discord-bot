@@ -458,7 +458,8 @@ async function scheduleGiveaway(
     }
   }, Math.max(1000, delay));
   giveawayTimers.set(giveawayId, timer);
-}   if (name === "level_toggle") {
+}   
+if (name === "level_toggle") {
     if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
       await respond(interaction, "You need Manage Server to toggle the level system.");
       return;
