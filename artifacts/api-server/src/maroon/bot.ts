@@ -9,9 +9,8 @@ import {
   Message,
   MessageFlags,
   PermissionFlagsBits,
-    REST,
+  REST,
   Routes,
-  ChannelType,
   SlashCommandBuilder,
   type ChatInputCommandInteraction,
   type Guild,
@@ -20,13 +19,16 @@ import {
 } from "discord.js";
 import { logger } from "../lib/logger";
 import {
-  clearDeletedMessages,
   addGiveawayEntry,
+  awardEligibleLevelProgress,
+  clearDeletedMessages,
   createComplaint,
   createGiveaway,
   getComplaintByOwnerMessage,
   getGiveawayByMessage,
   getGuildSettings,
+  getLevelProgressRemaining,
+  getLevelThreshold,
   getUserLeaderboard,
   getUserStat,
   hasRecentComplaint,
@@ -220,7 +222,7 @@ function helpEmbed(prefix: string) {
     .addFields(
       {
         name: "Setup",
-        value: "`/prefix_m` · `/announcements_channel_set` · `/welcome` · `/welcome_toggle` · `/a_ping` · `/aping` · `/aping_toggle`",
+        value: "`/prefix_m` · `/announcements_channel_set` · `/welcome` · `/welcome_toggle` · `/a_ping` · `/aping` · `/aping_toggle` · `/level`",
       },
       {
         name: "Safety & moderation",
@@ -228,11 +230,11 @@ function helpEmbed(prefix: string) {
       },
       {
         name: "Community",
-        value: "`/create_giveaway` · `/edit_giveaway` · `/poll` · `/who_is` · `/complain` · `/v`",
+        value: "`/create_giveaway` · `/edit_giveaway` · `/poll` · `/who_is` · `/complain` · `/v` · `/level`",
       },
       {
         name: "Prefix commands",
-        value: `\`${prefix}commands\` · \`${prefix}prefix\` · \`${prefix}mlock add @user\` · \`${prefix}mlock remove @user\`\n\`${prefix}mute\` · \`${prefix}kick\` · \`${prefix}ban\` · \`${prefix}lock\` · \`${prefix}unlock\` · \`${prefix}nuke\` · \`${prefix}raid\`\n\`${prefix}leaderboard\` · \`${prefix}afk\` · \`${prefix}s\` · \`${prefix}cs\` · \`${prefix}v\``,
+        value: `\`${prefix}commands\` · \`${prefix}prefix\` · \`${prefix}mlock add @user\` · \`${prefix}mlock remove @user\`\n\`${prefix}mute\` · \`${prefix}kick\` · \`${prefix}ban\` · \`${prefix}lock\` · \`${prefix}unlock\` · \`${prefix}nuke\` · \`${prefix}raid\`\n\`${prefix}level\` · \`${prefix}leaderboard\` · \`${prefix}afk\` · \`${prefix}s\` · \`${prefix}cs\` · \`${prefix}v\``,
       },
       {
         name: "Emergency lockdown",
@@ -297,6 +299,10 @@ function commandDefinitions() {
     new SlashCommandBuilder()
       .setName("who_is")
       .setDescription("Show a member's Discord and server stats")
+      .addUserOption((option) => option.setName("user").setDescription("Member to inspect")),
+    new SlashCommandBuilder()
+      .setName("level")
+      .setDescription("Show a member's current level and progress")
       .addUserOption((option) => option.setName("user").setDescription("Member to inspect")),
     new SlashCommandBuilder()
       .setName("auto_mod")
@@ -450,6 +456,37 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
     await respond(interaction, `[Vote for a higher win chance.](${VOTE_URL})`);
     return;
   }
+
+  if (name === "level") {
+    const targetUser = interaction.options.getUser("user") ?? interaction.user;
+    const stat = await getUserStat(guildId, targetUser.id);
+    if (!settings.levelSystemEnabled) {
+      await respond(interaction, "The level system is disabled in this server.");
+      return;
+    }
+    const level = stat?.level ?? 0;
+    const progress = stat?.levelMessages ?? 0;
+    const nextThreshold = getLevelThreshold(level + 1);
+    const remaining = getLevelProgressRemaining(progress, 125);
+    const current = Math.min(progress, nextThreshold || progress);
+    const total = nextThreshold > 0 ? nextThreshold : 1;
+    const percentage = Math.min(100, Math.round((current / total) * 100));
+    const barSize = 20;
+    const filled = Math.max(0, Math.round((percentage / 100) * barSize));
+    const empty = Math.max(0, barSize - filled);
+    const embed = new EmbedBuilder()
+      .setColor(0x8b1e3f)
+      .setTitle(`${targetUser.tag} • Level ${level}`)
+      .setDescription(
+        remaining > 0
+          ? `Progress: **${progress} / ${nextThreshold}**\n${"█".repeat(filled)}${"░".repeat(empty)} ${percentage}%\n${remaining} messages until level **${level + 1}**.`
+          : `Progress: **${progress}**\n${"█".repeat(barSize)} 100%\nMax level reached!`,
+      )
+      .setFooter({ text: level === 0 ? "Start chatting to earn your first level." : "Keep the momentum going." });
+    await respondWithEmbed(interaction, embed);
+    return;
+  }
+
   if (name === "menu_m" || name === "help" || name === "commands") {
     await respondWithEmbed(interaction, helpEmbed(normalizePrefix(settings.prefix) ?? DEFAULT_PREFIX));
     return;
@@ -539,7 +576,7 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
       return;
     }
     const channel = await client.channels.fetch(giveaway.channelId).catch(() => null);
-        if (!(channel as any).isTextBased?.()) { 
+    if (!(channel as { isTextBased?: () => boolean } | null)?.isTextBased?.()) {
       await respond(interaction, "I could not find the giveaway channel.");
       return;
     }
@@ -625,7 +662,7 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
       return;
     }
     const channel = interaction.options.getChannel("channel", true);
-        if (!(channel as any).isTextBased?.()) {
+    if (!(channel as { isTextBased?: () => boolean } | null)?.isTextBased?.()) {
       await respond(interaction, "That channel cannot receive join pings.");
       return;
     }
@@ -742,6 +779,32 @@ async function runPrefixCommand(message: Message, content: string, prefix: strin
 
   if (command === "help" || command === "commands" || command === "menu" || command === "menu_m") {
     return replyEmbed(helpEmbed(normalizePrefix(prefix) ?? DEFAULT_PREFIX));
+  }
+  if (command === "level") {
+    const settings = await getGuildSettings(message.guild.id);
+    if (!settings.levelSystemEnabled) {
+      return reply("The level system is disabled in this server.");
+    }
+    const target = args[0] ? (await resolveMentionedMember(message, args[0])) ?? member : member;
+    const stat = await getUserStat(message.guild.id, target.id);
+    const level = stat?.level ?? 0;
+    const progress = stat?.levelMessages ?? 0;
+    const nextThreshold = getLevelThreshold(level + 1);
+    const remaining = getLevelProgressRemaining(progress, 125);
+    const total = nextThreshold > 0 ? nextThreshold : 1;
+    const percentage = Math.min(100, Math.round((Math.min(progress, total) / total) * 100));
+    const barSize = 20;
+    const filled = Math.max(0, Math.round((percentage / 100) * barSize));
+    const empty = Math.max(0, barSize - filled);
+    const embed = new EmbedBuilder()
+      .setColor(0x8b1e3f)
+      .setTitle(`${target.user.tag} • Level ${level}`)
+      .setDescription(
+        remaining > 0
+          ? `Progress: **${progress} / ${nextThreshold}**\n${"█".repeat(filled)}${"░".repeat(empty)} ${percentage}%\n${remaining} messages until level **${level + 1}**.`
+          : `Progress: **${progress}**\n${"█".repeat(barSize)} 100%\nMax level reached!`,
+      );
+    return replyEmbed(embed);
   }
   if (command === "prefix" || command === "prefix_m") {
     if (!memberHasPermission(member, PermissionFlagsBits.ManageGuild)) {
@@ -973,7 +1036,7 @@ async function handleLockdown(message: Message) {
 }
 
 async function handleAutoMod(message: Message) {
-  if (!message.guild || message.author.bot) return;
+  if (!message.guild || message.author.bot) return false;
   const settings = await getGuildSettings(message.guild.id);
   const lower = message.content.toLowerCase();
   const terms = [
@@ -991,11 +1054,12 @@ async function handleAutoMod(message: Message) {
     const owner = await client.users.fetch(OWNER_ID).catch(() => null);
     await owner?.send(`Close Eye flagged an attachment in ${message.guild.name} from ${message.author.tag}: ${message.url}`).catch(() => undefined);
   }
-  if (!matched) return;
+  if (!matched) return false;
   await message.delete().catch(() => undefined);
   if (settings.autoModTimeoutSeconds > 0 && message.member?.moderatable) {
     await message.member.timeout(settings.autoModTimeoutSeconds * 1000, "Maroon auto-mod").catch(() => undefined);
   }
+  return true;
 }
 
 client.once("clientReady", async (readyClient) => {
@@ -1093,9 +1157,31 @@ client.on("messageCreate", async (message) => {
     await message.delete().catch(() => undefined);
     return;
   }
-  await handleAutoMod(message);
+  const autoModTriggered = await handleAutoMod(message);
+  if (autoModTriggered) return;
   const lockdownHandled = await handleLockdown(message);
   if (lockdownHandled) return;
+
+  if (settings.levelSystemEnabled) {
+    const result = await awardEligibleLevelProgress(message.guild.id, message.author.id, 1);
+    if (result.leveledUp) {
+      const member = await message.guild.members.fetch(message.author.id).catch(() => null);
+      const reward = settings.levelRoleRewards?.find((entry) => entry.level === result.level);
+      if (reward && member && message.guild.members.me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        await member.roles.add(reward.roleId).catch(() => undefined);
+      }
+      if (settings.levelAnnouncementChannelId) {
+        const channel = await message.guild.channels.fetch(settings.levelAnnouncementChannelId).catch(() => null);
+        if (channel?.isTextBased()) {
+          const content = (settings.levelMessageTemplate ?? "{user} reached level {level}!")
+            .replaceAll("{user}", `${message.author}`)
+            .replaceAll("{level}", String(result.level));
+          await channel.send(content).catch(() => undefined);
+        }
+      }
+    }
+  }
+
   const configuredPrefix = normalizePrefix(settings.prefix) ?? DEFAULT_PREFIX;
   if (message.content.startsWith(configuredPrefix)) {
     await runPrefixCommand(message, message.content, configuredPrefix);
@@ -1107,7 +1193,7 @@ client.on("messageCreate", async (message) => {
       .trim()
       .split(/\s+/, 1)[0]
       ?.toLowerCase();
-    if (["help", "commands", "menu", "prefix", "prefix_m"].includes(fallbackCommand ?? "")) {
+    if (["help", "commands", "menu", "prefix", "prefix_m", "level"].includes(fallbackCommand ?? "")) {
       await runPrefixCommand(message, message.content, DEFAULT_PREFIX);
     }
   }
