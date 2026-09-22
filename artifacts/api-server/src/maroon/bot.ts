@@ -459,24 +459,6 @@ async function scheduleGiveaway(
   }, Math.max(1000, delay));
   giveawayTimers.set(giveawayId, timer);
 }   
-if (name === "level_toggle") {
-    if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
-      await respond(interaction, "You need Manage Server to toggle the level system.");
-      return;
-    }
-    const enabled = interaction.options.getBoolean("enabled", true);
-    await updateGuildSettings(guildId, { levelSystemEnabled: enabled });
-    const embed = new EmbedBuilder()
-      .setColor(enabled ? 0x2ecc71 : 0x95a5a6)
-      .setTitle(enabled ? "Levels enabled" : "Levels disabled")
-      .setDescription(
-        enabled
-          ? "Members earn XP from chat. Use `/level` or `.level` to check progress."
-          : "Level progress is paused. Existing levels are kept.",
-      );
-    await respondWithEmbed(interaction, embed);
-    return;
-  }
 
 async function handleInteraction(interaction: ChatInputCommandInteraction) {
   if (!interaction.guildId) {
