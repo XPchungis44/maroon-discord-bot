@@ -215,35 +215,47 @@ async function respondWithEmbed(
 function helpEmbed(prefix: string) {
   return new EmbedBuilder()
     .setColor(0x8b1e3f)
-    .setTitle("Maroon Command Center")
+    .setTitle("◆ Maroon")
     .setDescription(
-      `Security, moderation, and server tools in one place.\nYour current prefix is **${prefix}**.`,
+      `All-in-one moderation & community tools.\n**Prefix:** \`${prefix}\` · **Slash:** type \`/\``,
     )
     .addFields(
       {
-        name: "Setup",
-        value: "`/prefix_m` · `/announcements_channel_set` · `/welcome` · `/welcome_toggle` · `/a_ping` · `/aping` · `/aping_toggle` · `/level`",
+        name: "⚙ Setup",
+        value:
+          "`/prefix` · `/welcome` · `/aping` · `/level_toggle` · `/announcements_channel_set`",
       },
       {
-        name: "Safety & moderation",
-        value: "`/auto_mod` · `/asetup_mod` · `/close_eye`\n`/mlock` is available as a prefix command.",
+        name: "🛡 Safety",
+        value:
+          "`/auto_mod` · `/asetup_mod` · `/close_eye`\n`" +
+          prefix +
+          "mute` · `" +
+          prefix +
+          "kick` · `" +
+          prefix +
+          "ban` · `" +
+          prefix +
+          "lock`",
       },
       {
-        name: "Community",
-        value: "`/create_giveaway` · `/edit_giveaway` · `/poll` · `/who_is` · `/complain` · `/v` · `/level`",
+        name: "✨ Community",
+        value:
+          "`/level` · `/who_is` · `/poll` · `/create_giveaway` · `/v`\n`" +
+          prefix +
+          "level` · `" +
+          prefix +
+          "leaderboard` · `" +
+          prefix +
+          "s`",
       },
       {
-        name: "Prefix commands",
-        value: `\`${prefix}commands\` · \`${prefix}prefix\` · \`${prefix}mlock add @user\` · \`${prefix}mlock remove @user\`\n\`${prefix}mute\` · \`${prefix}kick\` · \`${prefix}ban\` · \`${prefix}lock\` · \`${prefix}unlock\` · \`${prefix}nuke\` · \`${prefix}raid\`\n\`${prefix}level\` · \`${prefix}leaderboard\` · \`${prefix}afk\` · \`${prefix}s\` · \`${prefix}cs\` · \`${prefix}v\``,
-      },
-      {
-        name: "Emergency lockdown",
+        name: "🚨 Emergency",
         value: "`?!LOCK!?` · `?!UNLOCK!?` · `?!DELETE!? @user`",
       },
     )
-    .setFooter({ text: "Use /help or your prefix followed by commands any time." });
+    .setFooter({ text: `Maroon · /menu_m or ${prefix}help` });
 }
-
 function commandDefinitions() {
   return [
     new SlashCommandBuilder()
@@ -304,6 +316,12 @@ function commandDefinitions() {
       .setName("level")
       .setDescription("Show a member's current level and progress")
       .addUserOption((option) => option.setName("user").setDescription("Member to inspect")),
+        new SlashCommandBuilder()
+      .setName("level_toggle")
+      .setDescription("Turn the server level / XP system on or off")
+      .addBooleanOption((option) =>
+        option.setName("enabled").setDescription("Enabled").setRequired(true),
+      ),
     new SlashCommandBuilder()
       .setName("auto_mod")
       .setDescription("Configure Maroon's automatic moderation")
@@ -440,7 +458,24 @@ async function scheduleGiveaway(
     }
   }, Math.max(1000, delay));
   giveawayTimers.set(giveawayId, timer);
-}
+}   if (name === "level_toggle") {
+    if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
+      await respond(interaction, "You need Manage Server to toggle the level system.");
+      return;
+    }
+    const enabled = interaction.options.getBoolean("enabled", true);
+    await updateGuildSettings(guildId, { levelSystemEnabled: enabled });
+    const embed = new EmbedBuilder()
+      .setColor(enabled ? 0x2ecc71 : 0x95a5a6)
+      .setTitle(enabled ? "Levels enabled" : "Levels disabled")
+      .setDescription(
+        enabled
+          ? "Members earn XP from chat. Use `/level` or `.level` to check progress."
+          : "Level progress is paused. Existing levels are kept.",
+      );
+    await respondWithEmbed(interaction, embed);
+    return;
+  }
 
 async function handleInteraction(interaction: ChatInputCommandInteraction) {
   if (!interaction.guildId) {
