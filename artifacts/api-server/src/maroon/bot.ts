@@ -322,6 +322,40 @@ function commandDefinitions() {
       .addBooleanOption((option) =>
         option.setName("enabled").setDescription("Enabled").setRequired(true),
       ),
+        new SlashCommandBuilder()
+      .setName("level_reward")
+      .setDescription("Add, remove, or list level role rewards")
+      .addSubcommand((sub) =>
+        sub
+          .setName("add")
+          .setDescription("Give a role when a member reaches a level")
+          .addIntegerOption((option) =>
+            option.setName("level").setDescription("Level required").setRequired(true).setMinValue(1).setMaxValue(125),
+          )
+          .addRoleOption((option) =>
+            option.setName("role").setDescription("Role to grant").setRequired(true),
+          ),
+      )
+      .addSubcommand((sub) =>
+        sub
+          .setName("remove")
+          .setDescription("Remove a level role reward")
+          .addIntegerOption((option) =>
+            option.setName("level").setDescription("Level to clear").setRequired(true).setMinValue(1).setMaxValue(125),
+          ),
+      )
+      .addSubcommand((sub) =>
+        sub.setName("list").setDescription("List all level role rewards"),
+      ),
+    new SlashCommandBuilder()
+      .setName("level_autosetup")
+      .setDescription("Create colored level roles and wire rewards (Manage Roles required)")
+      .addBooleanOption((option) =>
+        option
+          .setName("confirm")
+          .setDescription("Must be true to run")
+          .setRequired(true),
+      ),
     new SlashCommandBuilder()
       .setName("auto_mod")
       .setDescription("Configure Maroon's automatic moderation")
