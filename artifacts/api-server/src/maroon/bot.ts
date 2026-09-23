@@ -556,6 +556,135 @@ async function handleInteraction(interaction: ChatInputCommandInteraction) {
     await respondWithEmbed(interaction, embed);
     return;
   }
+    if (name === "level_reward") {
+    if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
+      await respond(interaction, "You need Manage Server to configure level rewards.");
+      return;
+    }
+    const sub = interaction.options.getSubcommand();
+    const rewards = [...(settings.levelRoleRewards ?? [])].filter(
+      (entry) => typeof entry?.level === "number" && typeof entry?.roleId === "string",
+    );
+
+    if (sub === "list") {
+      if (!rewards.length) {
+        await respond(interaction, "No level rewards set. Use `/level_reward add` or `/level_autosetup`.");
+        return;
+      }
+      const lines = rewards
+        .sort((a, b) => a.level - b.level)
+        .map((entry) => `Level **${entry.level}** → <@&${entry.roleId}>`);
+      const embed = new EmbedBuilder()
+        .setColor(0x8b1e3f)
+        .setTitle("Level rewards")
+        .setDescription(lines.join("\n"));
+      await respondWithEmbed(interaction, embed);
+      return;
+    }
+
+    if (sub === "remove") {
+      const level = interaction.options.getInteger("level", true);
+      const next = rewards.filter((entry) => entry.level !== level);
+      await updateGuildSettings(guildId, { levelRoleRewards: next });
+      await respond(interaction, `Removed reward for level **${level}**.`);
+      return;
+    }
+
+    if (sub === "add") {
+      const level = interaction.options.getInteger("level", true);
+      const role = interaction.options.getRole("role", true);
+      const me = interaction.guild?.members.me;
+      if (!me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+        await respond(interaction, "I need **Manage Roles** to assign reward roles.");
+        return;
+      }
+      if (role.managed || role.id === interaction.guild?.id) {
+        await respond(interaction, "Pick a normal server role (not @everyone or an integration role).");
+        return;
+      }
+      if (me.roles.highest.position <= role.position) {
+        await respond(interaction, "Move my role **above** that reward role so I can assign it.");
+        return;
+      }
+      const next = rewards.filter((entry) => entry.level !== level);
+      next.push({ level, roleId: role.id });
+      next.sort((a, b) => a.level - b.level);
+      await updateGuildSettings(guildId, {
+        levelRoleRewards: next,
+        levelSystemEnabled: true,
+      });
+      await respond(
+        interaction,
+        `At level **${level}**, members get ${role}. Level system is on.`,
+      );
+      return;
+    }
+  }
+
+  if (name === "level_autosetup") {
+    if (!commandHasPermission(interaction, PermissionFlagsBits.ManageGuild)) {
+      await respond(interaction, "You need Manage Server to run level auto-setup.");
+      return;
+    }
+    if (!interaction.options.getBoolean("confirm", true)) {
+      await respond(interaction, "Set `confirm` to **True** to create roles.");
+      return;
+    }
+    const guild = interaction.guild;
+    const me = guild?.members.me;
+    if (!guild || !me?.permissions.has(PermissionFlagsBits.ManageRoles)) {
+      await respond(interaction, "I need **Manage Roles** in this server.");
+      return;
+    }
+
+    const presets = [
+      { level: 5, name: "Maroon Level 5", color: 0x5b8def },
+      { level: 15, name: "Maroon Level 15", color: 0x6bcf8e },
+      { level: 30, name: "Maroon Level 30", color: 0x9b7edc },
+      { level: 50, name: "Maroon Level 50", color: 0xe8b86d },
+      { level: 75, name: "Maroon Level 75", color: 0xd4a5a5 },
+      { level: 100, name: "Maroon Level 100", color: 0x8b1e3f },
+    ];
+
+    const everyone = guild.roles.everyone;
+    const created: Array<{ level: number; roleId: string }> = [];
+    for (const preset of presets) {
+      const existing = guild.roles.cache.find((r) => r.name === preset.name);
+      const role =
+        existing ??
+        (await guild.roles.create({
+          name: preset.name,
+          color: preset.color,
+          permissions: everyone.permissions,
+          reason: "Maroon level autosetup",
+          mentionable: false,
+          hoist: false,
+        }));
+      if (!existing) {
+        const base = everyone.position + created.length + 1;
+        await role.setPosition(Math.min(base, me.roles.highest.position - 1)).catch(() => undefined);
+      }
+      created.push({ level: preset.level, roleId: role.id });
+    }
+
+    await updateGuildSettings(guildId, {
+      levelSystemEnabled: true,
+      levelAutoSetup: true,
+      levelRoleRewards: created.sort((a, b) => a.level - b.level),
+    });
+
+    const embed = new EmbedBuilder()
+      .setColor(0x8b1e3f)
+      .setTitle("Level roles ready")
+      .setDescription(
+        created
+          .map((entry) => `Level **${entry.level}** → <@&${entry.roleId}>`)
+          .join("\n") +
+          "\n\nRoles use soft colors, same perms as @everyone, and sit above @everyone when possible. Level system is **on**.",
+      );
+    await respondWithEmbed(interaction, embed);
+    return;
+  }
   if (name === "menu_m" || name === "help" || name === "commands") {
     await respondWithEmbed(interaction, helpEmbed(normalizePrefix(settings.prefix) ?? DEFAULT_PREFIX));
     return;
